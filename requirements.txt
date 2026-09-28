@@ -1,0 +1,3 @@
+openpyxl==3.1.5
+# usado automaticamente pelo openpyxl para ler o XML das planilhas com segurança
+defusedxml==0.7.1

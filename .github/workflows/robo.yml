@@ -1,0 +1,99 @@
+name: Robô CMED
+
+# Todo dia o robô confere a página de preços da Anvisa. Se saiu lista nova,
+# baixa, limpa, compara com a anterior e publica (commit em dados/ e public/;
+# a Vercel republica o site sozinha). Se não saiu, não faz nada.
+#
+# Em push e pull request: roda os testes e confere se o que está em public/
+# bate com o que o código gera a partir de dados/ (as saídas são
+# determinísticas, então qualquer diferença é código mudado sem republicar).
+
+on:
+  schedule:
+    - cron: "17 11 * * *"  # 08:17 em Belém (UTC-3)
+  workflow_dispatch:
+    inputs:
+      historico:
+        description: "Buscar também até N listas anteriores (primeira carga)"
+        default: "0"
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    name: Testes e public/ em dia com dados/
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt
+      - name: Testes do robô (Python)
+        run: python -m unittest discover -s testes -v
+      - name: Testes do conferidor (JavaScript)
+        run: node --test testes/conferidor.test.mjs
+      - name: public/ bate com o que o código gera
+        run: |
+          if ! ls dados/listas/*.csv.gz >/dev/null 2>&1; then
+            echo "Ainda não há listas em dados/ (primeira execução do robô pendente)."
+            exit 0
+          fi
+          python robo/rodar.py --so-publicar
+          if ! git diff --quiet -- public; then
+            echo "::error::public/ diferente do gerado a partir de dados/. Rode 'python robo/rodar.py --so-publicar' e comite o resultado."
+            git diff --stat -- public
+            exit 1
+          fi
+
+  coletar:
+    name: Conferir a Anvisa e publicar lista nova
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: testes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    concurrency:
+      group: coletar-cmed
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Rodar o robô
+        env:
+          HISTORICO: ${{ github.event.inputs.historico || '0' }}
+        run: |
+          case "$HISTORICO" in (*[!0-9]*|'') echo "::error::historico precisa ser um número"; exit 1;; esac
+          python robo/rodar.py --historico "$HISTORICO"
+      - name: Publicar se algo mudou
+        run: |
+          git add dados public
+          if git diff --cached --quiet; then
+            echo "Nada novo para publicar."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Lista CMED atualizada pelo robô"
+          for tentativa in 1 2 3; do
+            if git push; then exit 0; fi
+            echo "Push rejeitado (tentativa $tentativa/3), sincronizando..."
+            git fetch origin main
+            if ! git rebase origin/main; then
+              git rebase --abort
+              echo "::error::Conflito ao sincronizar com origin/main"
+              exit 1
+            fi
+          done
+          echo "::error::Não foi possível publicar depois de 3 tentativas"
+          exit 1

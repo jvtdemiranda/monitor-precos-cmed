@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Monitor de preços CMED</title>
+<meta name="description" content="Robô que coleta todo mês a lista oficial de preços máximos de medicamentos (CMED/Anvisa), mostra o que mudou e confere se a tabela da farmácia está acima do PMC.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Crect%20width='24'%20height='24'%20rx='6'%20fill='%231f4e5a'/%3E%3Cpath%20d='M8.5%2015.5l7-7a2.5%202.5%200%200%200-3.5-3.5l-7%207a2.5%202.5%200%200%200%203.5%203.5zM9%208l3.5%203.5'%20fill='none'%20stroke='white'%20stroke-width='1.6'%20stroke-linecap='round'/%3E%3Cpath%20d='M14%2017h5M16.5%2014.5v5'%20stroke='white'%20stroke-width='1.6'%20stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;800&family=Source+Code+Pro:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    color-scheme:light;
+    --page:#f4f6f6; --surface:#ffffff; --surface-2:#eef2f3; --border:#dde3e5;
+    --ink:#1b1f23; --ink-2:#4a5358; --muted:#6b767b;
+    --brand:#1f4e5a; --brand-2:#2d7384;
+    --good:#1e7f4f; --good-bg:#e2f3ea; --bad:#b3261e; --bad-bg:#fbe8e6; --warn:#8a5a00; --warn-bg:#fdf1d8;
+    --font:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+    --mono:"Source Code Pro","SFMono-Regular",Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --page:#121617; --surface:#1a2022; --surface-2:#222a2d; --border:#2e383b;
+      --ink:#eef2f3; --ink-2:#b9c3c6; --muted:#8f9a9e;
+      --brand:#6fb3c4; --brand-2:#8fc7d4;
+      --good:#4cc38a; --good-bg:#17302a; --bad:#ef7a70; --bad-bg:#3a2120; --warn:#e3b04a; --warn-bg:#352b16;
+    }
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--page); color:var(--ink); font-family:var(--font); font-size:16px; line-height:1.5;}
+  h1,h2,h3{margin:0; text-wrap:balance;}
+  .num{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap;}
+  .wrap{max-width:1000px; margin:0 auto; padding:0 16px;}
+  a{color:var(--brand-2);}
+  [hidden]{display:none !important;}
+
+  header{background:var(--surface); border-bottom:1px solid var(--border); padding:22px 0 18px;}
+  .eyebrow{font-size:12px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--brand-2);}
+  header h1{font-size:27px; font-weight:800; margin-top:4px;}
+  header p{margin:4px 0 0; color:var(--ink-2); font-size:15px;}
+  .acoes{display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;}
+  .btn{display:inline-flex; align-items:center; gap:8px; text-decoration:none; font:700 15px var(--font); cursor:pointer;
+    padding:10px 16px; border-radius:10px; border:1.5px solid var(--brand); color:var(--brand); background:transparent;}
+  .btn.primario{background:var(--brand); color:var(--surface);}
+  .btn:disabled{opacity:.5; cursor:not-allowed;}
+  .btn svg{width:18px; height:18px; flex:none;}
+  .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible{outline:3px solid var(--brand-2); outline-offset:2px;}
+
+  main{padding:22px 0 40px;}
+  section{margin-top:30px;}
+  section:first-child{margin-top:0;}
+  h2{font-size:19px; font-weight:700; margin-bottom:6px;}
+  .explica{font-size:15px; color:var(--ink-2); margin:0 0 12px; max-width:760px;}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px;}
+
+  .kpis{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
+  .kpi{background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:13px 14px; min-width:0;}
+  .kpi .lbl{font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.04em;}
+  .kpi .val{font:600 23px var(--mono); margin-top:2px;}
+  .kpi .sub{font-size:13px; color:var(--ink-2);}
+
+  /* conferidor */
+  .campos{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  label.rot{display:block; font-size:13px; font-weight:700; color:var(--ink-2); margin-bottom:4px;}
+  select, input[type=search], textarea{width:100%; font:16px var(--font); color:var(--ink); background:var(--surface);
+    border:1.5px solid var(--border); border-radius:10px; padding:9px 11px;}
+  textarea{font:14px var(--mono); min-height:96px; resize:vertical;}
+  .dica{font-size:13px; color:var(--muted); margin-top:4px;}
+  .arquivo{display:flex; gap:10px; flex-wrap:wrap; align-items:center;}
+  .arquivo input[type=file]{font:15px var(--font); max-width:100%;}
+  .privacidade{display:flex; gap:8px; align-items:flex-start; font-size:14px; color:var(--ink-2); background:var(--surface-2);
+    border-radius:10px; padding:10px 12px; margin-top:14px;}
+  .privacidade svg{width:18px; height:18px; flex:none; margin-top:2px; color:var(--good);}
+  .aviso{font-size:14px; border-radius:10px; padding:10px 12px; margin-top:12px; background:var(--warn-bg); color:var(--warn);}
+  .aviso.erro{background:var(--bad-bg); color:var(--bad);}
+
+  .contagens{display:flex; flex-wrap:wrap; gap:8px; margin:16px 0 12px;}
+  .chip{display:inline-flex; align-items:center; gap:6px; font-size:14px; font-weight:700; border-radius:999px;
+    padding:5px 12px; border:1.5px solid var(--border); background:var(--surface); color:var(--ink-2); cursor:pointer;}
+  .chip[aria-pressed="true"]{border-color:var(--brand); color:var(--brand); background:var(--surface-2);}
+  .chip .n{font-family:var(--mono);}
+  .selo{display:inline-flex; align-items:center; gap:5px; font-size:13px; font-weight:700; border-radius:6px; padding:2px 8px; white-space:nowrap;}
+  .selo svg{width:13px; height:13px;}
+  .selo.acima, .selo.fora{background:var(--bad-bg); color:var(--bad);}
+  .selo.atencao{background:var(--warn-bg); color:var(--warn);}
+  .selo.ok{background:var(--good-bg); color:var(--good);}
+  .selo.neutro{background:var(--surface-2); color:var(--ink-2);}
+
+  table.tab{width:100%; border-collapse:collapse; font-size:15px;}
+  table.tab th{font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; text-align:left;
+    padding:0 8px 8px; border-bottom:2px solid var(--brand); white-space:nowrap;}
+  table.tab td{padding:9px 8px; border-bottom:1px solid var(--border); vertical-align:top;}
+  table.tab th.d, table.tab td.d{text-align:right;}
+  table.tab tr.destaque td{background:var(--bad-bg);}
+  .nome{font-weight:700;}
+  .apres{font-size:13px; color:var(--ink-2);}
+  .obs{font-size:13px; color:var(--ink-2); margin-top:3px;}
+  .rolagem{overflow-x:auto;}
+  .mais{margin-top:10px; font-size:14px; color:var(--ink-2);}
+
+  .alerta-caixa{border:1.5px solid var(--bad); border-radius:12px; padding:12px 14px; background:var(--bad-bg); margin-bottom:12px;}
+  .alerta-caixa h3{font-size:16px; color:var(--bad);}
+  .alerta-caixa p{margin:4px 0 0; font-size:14px; color:var(--ink);}
+
+  details{background:var(--surface); border:1px solid var(--border); border-radius:12px; margin-top:10px;}
+  details summary{cursor:pointer; padding:12px 14px; font-weight:700;}
+  details .dentro{padding:0 14px 12px;}
+  details ul{margin:0; padding-left:18px; font-size:14px;}
+  details li{margin:3px 0;}
+
+  tr.abril td{background:var(--warn-bg);}
+  .qual{display:grid; grid-template-columns:repeat(2,1fr); gap:10px;}
+  .q{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px; font-size:14px;}
+  .q b{font:600 18px var(--mono); display:block;}
+  .q span{color:var(--ink-2);}
+
+  .resultados-busca .item{padding:10px 0; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; gap:12px;}
+  .resultados-busca .item:last-child{border-bottom:none;}
+  .resultados-busca .pmc{text-align:right;}
+  .resultados-busca .pmc b{font:600 17px var(--mono); display:block;}
+  .carregando{color:var(--muted); font-size:14px;}
+
+  footer{font-size:13px; color:var(--muted); margin-top:34px; border-top:1px solid var(--border); padding-top:14px;}
+  footer p{margin:4px 0;}
+
+  @media (max-width:760px){
+    header h1{font-size:23px;}
+    .kpis{grid-template-columns:repeat(2,1fr);}
+    .kpi .val{font-size:20px;}
+    .campos, .qual{grid-template-columns:1fr;}
+    table.resp thead{display:none;}
+    table.resp, table.resp tbody, table.resp tr, table.resp td{display:block; width:100%;}
+    table.resp tr{display:flex; flex-direction:column; padding:10px 0; border-bottom:1px solid var(--border);}
+    table.resp td[data-rotulo="Situação"]{order:-1; margin-bottom:4px;}
+    table.resp td[data-rotulo="Situação"]::before, table.resp td[data-rotulo="Linha"]{display:none;}
+    table.resp td{border:none; padding:2px 0; text-align:left !important;}
+    table.resp td[data-rotulo]::before{content:attr(data-rotulo) ": "; font-size:12px; font-weight:700; color:var(--muted); text-transform:uppercase;}
+    table.resp tr.destaque{background:var(--bad-bg); padding:10px; border-radius:10px; margin:6px 0;}
+    table.resp tr.destaque td{background:none;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="eyebrow">Portfólio · monitor-precos-cmed</div>
+    <h1>Preço máximo de medicamentos</h1>
+    <p id="subtitulo">Lista oficial da CMED/Anvisa, coletada e conferida por um robô.</p>
+    <div class="acoes">
+      <a class="btn primario" href="lista-cmed.xlsx" download>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        Baixar planilha (Excel)
+      </a>
+      <a class="btn" href="#conferidor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11"/></svg>
+        Conferir meus preços
+      </a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <p id="erro-carga" class="aviso erro" hidden></p>
+
+  <section>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section id="conferidor">
+    <h2>Conferidor: sua farmácia está acima do PMC?</h2>
+    <p class="explica">Vender acima do preço máximo ao consumidor (PMC) é infração e dá multa. Envie a tabela de preços
+      da farmácia (CSV) ou cole as colunas direto do Excel — com o código de barras e o preço — e veja na hora o que passou do teto.</p>
+    <div class="card">
+      <div class="campos">
+        <div>
+          <label class="rot" for="aliquota">Alíquota de ICMS do seu estado</label>
+          <select id="aliquota"></select>
+          <div class="dica">Pará: 19%. A alíquota decide qual coluna do PMC vale — confira a do seu estado.</div>
+        </div>
+        <div>
+          <label class="rot" for="arquivo">Arquivo com os preços (.csv)</label>
+          <div class="arquivo">
+            <input type="file" id="arquivo" accept=".csv,.txt,text/csv,text/plain">
+          </div>
+          <div class="dica">Precisa ter uma coluna com o código de barras (EAN) e outra com o preço.
+            <a href="exemplo.csv" download="tabela-drogaria-exemplo.csv">Baixar tabela de exemplo</a></div>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <label class="rot" for="colado">…ou cole aqui (copie as colunas no Excel, com o cabeçalho)</label>
+        <textarea id="colado" spellcheck="false" wrap="off" placeholder="EAN&#9;Produto&#9;Preço&#10;7891106000956&#9;BAYCUTEN N 40 G&#9;49,90"></textarea>
+      </div>
+      <div class="acoes">
+        <button class="btn primario" id="btn-conferir" type="button" disabled>Conferir</button>
+        <button class="btn" id="btn-exemplo" type="button" disabled>Testar com a tabela de exemplo</button>
+      </div>
+      <div class="privacidade">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+        <span>A conferência roda no seu navegador: a tabela da farmácia não é enviada para nenhum servidor.</span>
+      </div>
+      <p class="carregando" id="carregando-lista">Carregando a lista oficial…</p>
+      <div id="avisos-conferencia"></div>
+      <div id="resultado" hidden>
+        <div class="contagens" id="contagens" role="group" aria-label="Filtrar resultado"></div>
+        <div class="rolagem">
+          <table class="tab resp" id="tab-resultado">
+            <thead><tr><th>Linha</th><th>Produto</th><th class="d">Seu preço</th><th class="d">PMC</th><th class="d">Diferença</th><th>Situação</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="acoes"><button class="btn" id="btn-baixar-resultado" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          Baixar resultado (CSV)</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 id="titulo-mudancas">O que mudou</h2>
+    <p class="explica" id="explica-mudancas"></p>
+    <div id="fora-do-normal"></div>
+    <div class="card rolagem">
+      <table class="tab resp" id="tab-mudancas">
+        <thead><tr><th>Produto</th><th>Laboratório</th><th class="d">Antes</th><th class="d">Agora</th><th class="d">Variação</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <details id="det-novos"><summary></summary><div class="dentro"><ul></ul><p class="mais"></p></div></details>
+    <details id="det-sairam"><summary></summary><div class="dentro"><ul></ul><p class="mais"></p></div></details>
+  </section>
+
+  <section>
+    <h2>Mês a mês</h2>
+    <p class="explica">Quantos preços mudaram em cada publicação da lista, comparada com a anterior. Em abril sai o
+      reajuste anual e quase todos mudam; nos outros meses são poucas dezenas — por isso uma mudança fora de abril merece atenção.</p>
+    <div class="card rolagem">
+      <table class="tab" id="tab-historico">
+        <thead><tr><th>Publicada em</th><th class="d">Subiram</th><th class="d">Desceram</th><th class="d">Fora do normal</th><th class="d">Entraram</th><th class="d">Saíram</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Consultar um medicamento</h2>
+    <p class="explica">Busque pelo nome, substância, laboratório ou código de barras. O PMC mostrado é o da alíquota escolhida no conferidor.</p>
+    <div class="card">
+      <label class="rot" for="busca">Buscar</label>
+      <input type="search" id="busca" placeholder="Ex.: losartana 50 mg, Dorflex, 7891058…" autocomplete="off" disabled>
+      <div class="resultados-busca" id="resultados-busca" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Qualidade da lista oficial</h2>
+    <p class="explica">A planilha da Anvisa não vem pronta para uso. Antes de publicar, o robô limpa e registra o que encontrou nela.</p>
+    <div class="qual" id="qualidade"></div>
+  </section>
+
+  <footer>
+    <p id="fonte"></p>
+    <p>Ferramenta de apoio: não substitui a consulta à lista oficial. A alíquota de ICMS aplicável é responsabilidade do comerciante.</p>
+    <p>Projeto de portfólio — <a href="https://github.com/jvtdemiranda/monitor-precos-cmed">código no GitHub</a>. A drogaria da tabela de exemplo é fictícia.</p>
+  </footer>
+</main>
+
+<script src="conferidor.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
