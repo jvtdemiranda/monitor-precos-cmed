@@ -138,10 +138,20 @@ class TesteLista(unittest.TestCase):
         with self.assertRaises(lista.ListaInvalida):
             lista.ler_lista(lista_xlsx(self.dir / "l.xlsx", linhas))
 
-    def test_ggrem_repetido_para_tudo(self):
-        linhas = basica() + [produto("538912020009303", "DUPLICADO", 10.0)]
-        with self.assertRaises(lista.ListaInvalida):
-            lista.ler_lista(lista_xlsx(self.dir / "l.xlsx", linhas))
+    def test_ggrem_repetido(self):
+        # linha idêntica: some; mesmo código com preço diferente: fica o menor PMC
+        linhas = basica() + [basica()[0], produto("507619060021902", "VERZENIOS", 4000.00, ean="0000000000000")]
+        _, ps, q = lista.ler_lista(lista_xlsx(self.dir / "l.xlsx", linhas))
+        self.assertEqual(len(ps), 6)
+        self.assertEqual((q.linhas_repetidas, q.ggrem_conflitante), (1, 1))
+        self.assertEqual({p["ggrem"]: p for p in ps}["507619060021902"]["pmc"]["19"], 400000)
+        self.assertIn("507619060021902", q.exemplos_conflito[0])
+
+    def test_muitos_ggrem_conflitantes_param_tudo(self):
+        extras = [produto(f"9{i:014d}", f"P{i}", 10.0) for i in range(6)]
+        conflitos = [produto(f"9{i:014d}", f"P{i}", 20.0) for i in range(6)]
+        with self.assertRaises(lista.ListaInvalida):  # 6 conflitos: mais que o tolerado (5 ou 1%)
+            lista.ler_lista(lista_xlsx(self.dir / "l.xlsx", basica() + extras + conflitos))
 
     def test_lista_pequena_demais(self):
         lista.MINIMO_PRODUTOS = 1000

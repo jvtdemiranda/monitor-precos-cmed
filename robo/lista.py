@@ -8,7 +8,9 @@ O arquivo publicado pela Anvisa não é uma tabela pronta:
 - campo vazio vem como "    -     " ou "- (*) ";
 - produto de uso restrito a hospital vem sem PMC em todas as alíquotas;
 - códigos de barras repetidos entre produtos, e "0000000000000" como
-  código de barras de mentira.
+  código de barras de mentira;
+- de vez em quando, o mesmo código GGREM em duas linhas (apareceu na lista
+  de 11/09/2025).
 
 ler_lista() devolve os produtos já limpos e um registro do que foi
 corrigido — que aparece na página, na seção "Qualidade da lista oficial".
@@ -92,6 +94,9 @@ class Qualidade:
     precos_asterisco: int = 0
     precos_ilegiveis: int = 0
     exemplos_ilegiveis: list = field(default_factory=list)
+    linhas_repetidas: int = 0
+    ggrem_conflitante: int = 0
+    exemplos_conflito: list = field(default_factory=list)
 
 
 def _texto(valor, q):
@@ -182,16 +187,13 @@ def ler_lista(caminho):
         if "19" not in pmc or "0" not in pmc:
             raise ListaInvalida(f"colunas de PMC não reconhecidas (achei: {sorted(pmc)})")
 
-        produtos, vistos = [], set()
+        produtos, vistos = [], {}
         for linha in linhas:
             if not linha or all(c is None or str(c).strip() == "" for c in linha):
                 continue
             ggrem = re.sub(r"\D", "", str(linha[colunas["ggrem"]] or ""))
             if not ggrem:
                 continue  # linha de rodapé/nota no fim, se um dia aparecer
-            if ggrem in vistos:
-                raise ListaInvalida(f"código GGREM repetido: {ggrem}")
-            vistos.add(ggrem)
             p = {"ggrem": ggrem}
             for campo, j in colunas.items():
                 if campo == "ggrem":
@@ -209,17 +211,24 @@ def ler_lista(caminho):
                 asterisco |= ast
             if asterisco:
                 q.precos_asterisco += 1
-            if p["pmc"]["19"] is None:
-                if p["hospitalar"]:
-                    q.sem_pmc_hospitalar += 1
-                else:
-                    q.sem_pmc_outros += 1
+            if ggrem in vistos:
+                _repetido(produtos, vistos[ggrem], p, q)
+                continue
+            vistos[ggrem] = len(produtos)
             produtos.append(p)
     finally:
         wb.close()
 
+    for p in produtos:
+        if p["pmc"]["19"] is None:
+            if p["hospitalar"]:
+                q.sem_pmc_hospitalar += 1
+            else:
+                q.sem_pmc_outros += 1
     if len(produtos) < MINIMO_PRODUTOS:
         raise ListaInvalida(f"só {len(produtos)} produtos — a lista oficial tem dezenas de milhares")
+    if q.ggrem_conflitante > max(5, len(produtos) // 100):
+        raise ListaInvalida(f"{q.ggrem_conflitante} códigos GGREM repetidos com dados diferentes, ex.: {q.exemplos_conflito}")
     if q.precos_ilegiveis > len(produtos) // 100:
         raise ListaInvalida(f"{q.precos_ilegiveis} preços em formato desconhecido, ex.: {q.exemplos_ilegiveis}")
 
@@ -231,6 +240,24 @@ def ler_lista(caminho):
     q.produtos = len(produtos)
     info = {"publicada_em": publicada, "aliquotas": sorted(pmc, key=_ordem_aliquota)}
     return info, produtos, q
+
+
+def _repetido(produtos, i, novo, q):
+    """
+    Mesmo código GGREM em duas linhas. Linha idêntica: descarta a cópia.
+    Dados diferentes: fica a de menor PMC (o teto mais seguro para quem
+    vende) e o caso vai para o registro de qualidade, com exemplo.
+    """
+    atual = produtos[i]
+    if atual == novo:
+        q.linhas_repetidas += 1
+        return
+    q.ggrem_conflitante += 1
+    a, b = atual["pmc"].get("19"), novo["pmc"].get("19")
+    if len(q.exemplos_conflito) < 5:
+        q.exemplos_conflito.append(f"{novo['ggrem']}: {atual['produto']} (PMC 19% {a}) x {novo['produto']} (PMC 19% {b})")
+    if b is not None and (a is None or b < a):
+        produtos[i] = novo
 
 
 def _ordem_aliquota(chave):

@@ -162,7 +162,9 @@
       [q.sem_pmc_hospitalar, "apresentações de uso hospitalar, sem PMC em nenhuma alíquota"],
       [q.ean_repetido, "códigos de barras repetidos em mais de uma apresentação (o conferidor avisa e usa o menor PMC)"],
       [q.ean_invalido, "códigos de barras com dígito verificador inválido (mantidos: é o que está na caixa)"],
-      [q.ean_zerado, "códigos de barras \"0000000000000\", descartados"]
+      [q.ean_zerado, "códigos de barras \"0000000000000\", descartados"],
+      [q.linhas_repetidas || null, "linhas repetidas idênticas, descartadas"],
+      [q.ggrem_conflitante || null, "códigos GGREM repetidos com dados diferentes (ficou o de menor PMC, o teto mais seguro)"]
     ];
     var box = limpar($("qualidade"));
     itens.forEach(function (i) {
