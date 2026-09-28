@@ -20,6 +20,9 @@ USER_AGENT = "monitor-precos-cmed/1.0 (+https://github.com/jvtdemiranda/monitor-
 # (farmácias); "gov" é a de compras públicas, que não interessa aqui.
 RE_ARQUIVO = re.compile(r"/xls_conformidade_site_(\d{8})_\d+\.xlsx", re.I)
 PAUSA = 2.0
+HOSTS_PERMITIDOS = {"www.gov.br"}
+# o arquivo real tem ~12 MB; bem acima disso é engano (ou abuso) e não vale encher o disco
+TAMANHO_MAXIMO = 100 * 1024 * 1024
 
 
 class LinkNaoEncontrado(Exception):
@@ -77,8 +80,19 @@ def lista_mais_recente(html):
     return listas[0]
 
 
+class OrigemRecusada(Exception):
+    """O endereço (ou o redirecionamento) saiu do site da Anvisa."""
+
+
+def _conferir_host(url):
+    host = urllib.parse.urlparse(url).hostname
+    if urllib.parse.urlparse(url).scheme != "https" or host not in HOSTS_PERMITIDOS:
+        raise OrigemRecusada(f"endereço fora do site da Anvisa: {url}")
+
+
 def baixar(url, prazo=300, tentativas=3, espera=(5, 20, 60)):
     """Baixa com prazo total, tentando de novo em falha de rede. Devolve bytes."""
+    _conferir_host(url)
     erro = None
     for n in range(tentativas):
         time.sleep(PAUSA if n == 0 else espera[min(n - 1, len(espera) - 1)])
@@ -86,12 +100,18 @@ def baixar(url, prazo=300, tentativas=3, espera=(5, 20, 60)):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=60) as r:
-                partes = []
+                _conferir_host(r.geturl())  # urllib segue redirecionamento sozinho
+                partes, total = [], 0
                 while bloco := r.read(1 << 16):
                     partes.append(bloco)
+                    total += len(bloco)
+                    if total > TAMANHO_MAXIMO:
+                        raise OrigemRecusada(f"arquivo passou de {TAMANHO_MAXIMO // 2**20} MB: {url}")
                     if time.time() - inicio > prazo:
                         raise TimeoutError(f"download passou de {prazo}s")
                 return b"".join(partes)
+        except OrigemRecusada:
+            raise  # não adianta tentar de novo
         except Exception as e:  # noqa: BLE001 — qualquer falha de rede: tenta de novo
             erro = e
             print(f"  tentativa {n + 1}/{tentativas} falhou: {e!r}", flush=True)

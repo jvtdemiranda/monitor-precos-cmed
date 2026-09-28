@@ -322,7 +322,7 @@
       try { texto = new TextDecoder("utf-8", { fatal: true }).decode(buf); }
       catch (e) { texto = new TextDecoder("windows-1252").decode(buf); } // CSV salvo pelo Excel no Windows
       conferirTexto(texto);
-    });
+    }).catch(falhou);
   });
   $("btn-exemplo").addEventListener("click", function () {
     fetch("exemplo.csv").then(function (r) { return r.text(); }).then(function (t) {

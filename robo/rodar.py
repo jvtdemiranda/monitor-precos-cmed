@@ -98,8 +98,9 @@ def main():
         publicar_tudo()
         return
 
-    fontes = dados.ler_fontes()
-    ja_temos = set(dados.publicacoes()) | {f["url"] for f in fontes.values()}
+    # "já temos" pelo endereço do arquivo, não pela data: se a Anvisa
+    # republicar uma lista corrigida no mesmo dia, o nome do arquivo muda
+    ja_temos = {f["url"] for f in dados.ler_fontes().values()}
     print(f"Conferindo {coleta.PAGINA}")
     html = coleta.baixar(coleta.PAGINA, prazo=60).decode("utf-8", "replace")
     pendentes = [coleta.lista_mais_recente(html)]
@@ -107,7 +108,7 @@ def main():
         print(f"Buscando até {args.historico} listas anteriores em {coleta.ANTERIORES}")
         html_ant = coleta.baixar(coleta.ANTERIORES, prazo=120).decode("utf-8", "replace")
         pendentes += coleta.listas_na_pagina(html_ant, coleta.ANTERIORES)[: args.historico]
-    novas = sorted({(d, u) for d, u in pendentes if d not in ja_temos and u not in ja_temos})
+    novas = sorted({(d, u) for d, u in pendentes if u not in ja_temos})
     if not novas:
         print(f"Nenhuma lista nova (a mais recente, de {pendentes[0][0]}, já está em dados/).")
         return

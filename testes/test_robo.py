@@ -190,6 +190,67 @@ class TesteColeta(unittest.TestCase):
         self.assertEqual(len(coleta.conferir_planilha(b"PK\x03\x04resto")), 64)
 
 
+class _Resposta(io.BytesIO):
+    """Resposta falsa de urlopen: conteúdo e endereço final (depois de redirecionar)."""
+    def __init__(self, corpo, final):
+        super().__init__(corpo)
+        self.final = final
+
+    def geturl(self):
+        return self.final
+
+
+class TesteDownload(unittest.TestCase):
+    URL = "https://www.gov.br/anvisa/pt-br/assuntos/medicamentos/cmed/precos/arquivos/x.xlsx/@@download/file"
+
+    def setUp(self):
+        self._orig, self._pausa = coleta.urllib.request.urlopen, coleta.PAUSA
+        coleta.PAUSA = 0
+
+    def tearDown(self):
+        coleta.urllib.request.urlopen, coleta.PAUSA = self._orig, self._pausa
+
+    def falso(self, corpo=b"PK\x03\x04ok", final=None):
+        coleta.urllib.request.urlopen = lambda req, timeout: _Resposta(corpo, final or req.full_url)
+
+    def test_baixa(self):
+        self.falso()
+        self.assertEqual(coleta.baixar(self.URL), b"PK\x03\x04ok")
+
+    def test_recusa_endereco_fora_da_anvisa(self):
+        self.falso()
+        for url in ("https://outro-site.com/x.xlsx", "http://www.gov.br/anvisa/x.xlsx"):
+            with self.assertRaises(coleta.OrigemRecusada):
+                coleta.baixar(url)
+
+    def test_recusa_redirecionamento_para_outro_site(self):
+        self.falso(final="https://outro-site.com/x.xlsx")
+        with self.assertRaises(coleta.OrigemRecusada):
+            coleta.baixar(self.URL)
+
+    def test_recusa_arquivo_gigante(self):
+        maximo = coleta.TAMANHO_MAXIMO
+        coleta.TAMANHO_MAXIMO = 1000
+        try:
+            self.falso(corpo=b"PK\x03\x04" + b"0" * 5000)
+            with self.assertRaises(coleta.OrigemRecusada):
+                coleta.baixar(self.URL)
+        finally:
+            coleta.TAMANHO_MAXIMO = maximo
+
+    def test_tenta_de_novo_quando_a_conexao_cai(self):
+        chamadas = []
+
+        def instavel(req, timeout):
+            chamadas.append(1)
+            if len(chamadas) < 3:
+                raise ConnectionResetError("conexão caiu")
+            return _Resposta(b"PK\x03\x04ok", req.full_url)
+        coleta.urllib.request.urlopen = instavel
+        self.assertEqual(coleta.baixar(self.URL, espera=(0, 0)), b"PK\x03\x04ok")
+        self.assertEqual(len(chamadas), 3)
+
+
 def _p(ggrem, pmc19, nome="X"):
     return {"ggrem": ggrem, "produto": nome, "apresentacao": "", "laboratorio": "", "pmc": {"19": pmc19}}
 
