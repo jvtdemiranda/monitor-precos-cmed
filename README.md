@@ -79,8 +79,17 @@ esperava ver:
 - **Mês a mês**: quantos preços mudaram em cada publicação.
 - **Busca** por nome, substância, laboratório ou código de barras.
 - **Qualidade da lista oficial**: o que o robô encontrou e corrigiu.
-- **Planilha** com as mudanças, os produtos novos e os que saíram, e a
-  lista completa com o PMC em cada alíquota.
+- **Planilha para baixar**, feita para ser lida e não só filtrada: uma aba
+  de resumo com os números do mês, os casos fora do normal e um guia de
+  leitura; abas curtas com as mudanças (setas coloridas, casos para
+  conferir em destaque), os produtos novos, os que saíram e o mês a mês;
+  a consulta das 26 mil apresentações só com as colunas do dia a dia
+  (PMC do Pará e PMC 0%); e a matriz de todas as alíquotas numa aba à
+  parte, para outros estados.
+
+<p align="center">
+  <img src="docs/planilha-resumo.png" width="80%" alt="Aba Resumo da planilha: números da lista de 09/09/2026, o que mudou desde 11/08/2026 e os seis preços fora do normal, com setas vermelhas e verdes">
+</p>
 
 <p align="center">
   <img src="docs/mudancas.png" width="80%" alt="Mudanças desde 11/08/2026: seis preços fora do normal em destaque, entre eles o Mesilato de Lenvatinibe 10 mg que passou de R$ 1.037,10 para R$ 10.371,09">
@@ -209,9 +218,26 @@ código que perdeu o zero à esquerda.
 8. **Detalhes da planilha**: sem configuração de impressão, cada coluna
    saía numa folha; variação de +0,04% aparecia como "+0,0%".
 
-Testes: 23 do robô em Python (lista no formato real do arquivo oficial,
+E depois de publicado, o retorno de quem baixou a planilha:
+
+9. **A planilha era uma bagunça.** Os números estavam certos, mas a aba
+   principal tinha 36 colunas (26 só de PMC, uma por alíquota), a aba
+   de instruções era uma coluna de texto solto e nada tinha hierarquia.
+   Refeita do zero: resumo que se lê como documento, tabelas curtas com
+   poucas colunas, a matriz de alíquotas separada, cabeçalho fixo e filtro
+   em todas as tabelas, linhas separadas por fio fino (continua arrumado
+   depois de ordenar ou filtrar, em qualquer programa). No caminho, dois
+   achados: a cor verde das setas, definida no formato do número, saía
+   quase invisível no LibreOffice (passou para a cor da fonte, que todo
+   programa respeita); e aplicar o estilo célula a célula em quase 1
+   milhão de células levava a geração de 16 s para 1 min 40 s — com o
+   estilo montado uma vez e reaproveitado, voltou para 24 s, com o
+   arquivo byte a byte idêntico.
+
+Testes: 24 do robô em Python (lista no formato real do arquivo oficial,
 com as mesmas 74 colunas; página real da Anvisa como fixture; download
-com conexão caindo e redirecionamento para fora) e 11 do
+com conexão caindo e redirecionamento para fora; estrutura da planilha)
+e 11 do
 conferidor em JavaScript, rodando no CI a cada push. Página conferida de
 390px a 1280px, temas claro e escuro, sem rolagem horizontal.
 
@@ -237,7 +263,8 @@ monitor-precos-cmed/
 │   ├── lista.py          -> lê e limpa o arquivo oficial, registra o que corrigiu
 │   ├── comparar.py       -> o que mudou entre duas listas, histórico mês a mês
 │   ├── dados.py          -> o que fica guardado em dados/
-│   ├── publicar.py       -> dados da página e planilha
+│   ├── publicar.py       -> dados da página
+│   ├── planilha.py       -> planilha para baixar
 │   └── gerar_exemplo.py  -> gera a tabela de exemplo (drogaria fictícia)
 ├── dados/                -> listas limpas, histórico de PMC e origem de cada arquivo
 ├── public/               -> o site (index.html, app.js, conferidor.js) e os dados publicados

@@ -327,12 +327,38 @@ class TesteDadosEPublicacao(unittest.TestCase):
         segunda = {p.relative_to(pub): p.read_bytes() for p in pub.rglob("*") if p.is_file()}
         self.assertEqual(primeira, segunda)
         wb = load_workbook(pub / "lista-cmed.xlsx")
-        ws = wb["Lista completa"]
-        celula = next(c for c in ws["A"] if isinstance(c.value, str) and "HYPERLINK" in c.value)
-        self.assertEqual(celula.data_type, "s")
+        for aba in ("Consulta PMC", "PMC por alíquota"):
+            celula = next(c for c in wb[aba]["B"] if isinstance(c.value, str) and "HYPERLINK" in c.value)
+            self.assertEqual(celula.data_type, "s")
         with zipfile.ZipFile(pub / "lista-cmed.xlsx") as z:
             self.assertNotIn(b"<f>", b"".join(z.read(n) for n in z.namelist() if n.startswith("xl/worksheets/")))
-        self.assertIn("Mudanças de preço", wb.sheetnames)
+
+    def test_planilha_arrumada(self):
+        self.processar(basica(), "11/08/2026")
+        self.processar(basica(), "09/09/2026")
+        pub = self.dir / "public"
+        rodar.publicar_tudo(self.dir / "dados", pub)
+        wb = load_workbook(pub / "lista-cmed.xlsx")
+        self.assertEqual(wb.sheetnames, ["Resumo", "Mudanças de preço", "Novos na lista", "Saíram da lista",
+                                         "Mês a mês", "Consulta PMC", "PMC por alíquota"])
+        for ws in wb.worksheets:
+            self.assertFalse(ws.sheet_view.showGridLines, ws.title)
+            if ws.title == "Resumo":
+                continue
+            # cabeçalho fixo e com filtro, logo abaixo do título
+            self.assertTrue(ws.freeze_panes, ws.title)
+            self.assertTrue(ws.auto_filter.ref, ws.title)
+            linha_cab = int(ws.auto_filter.ref.split(":")[0][1:])
+            self.assertEqual(int(ws.freeze_panes[1:]), linha_cab + 1, ws.title)
+        consulta = wb["Consulta PMC"]
+        cab = [c.value for c in consulta[4]][1:]
+        self.assertEqual(cab[:2], ["Produto", "Apresentação"])
+        self.assertIn("PMC 19% (Pará)", cab)
+        self.assertLessEqual(len(cab), 10)  # consulta do dia a dia: poucas colunas
+        # preço como número, formatado em reais (não texto)
+        preco = next(c for c in consulta["H"][4:] if c.value is not None)
+        self.assertIsInstance(preco.value, float)
+        self.assertIn("R$", preco.number_format)
 
 
 if __name__ == "__main__":

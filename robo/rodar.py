@@ -25,6 +25,7 @@ import coleta  # noqa: E402
 import comparar  # noqa: E402
 import dados  # noqa: E402
 import lista  # noqa: E402
+import planilha  # noqa: E402
 import publicar  # noqa: E402
 
 # lista nova com menos de 80% dos produtos da anterior: provavelmente arquivo
@@ -73,8 +74,8 @@ def publicar_tudo(raiz=dados.RAIZ, destino=publicar.PUBLIC):
     fonte = fontes.get(atual, {})
     publicar.gerar_json(destino, atual, fonte.get("url", ""), aliquotas, produtos, comp, anterior,
                         historico, fonte.get("qualidade", {}))
-    publicar.gerar_planilha(destino / "lista-cmed.xlsx", atual, anterior, fonte.get("url", ""),
-                            aliquotas, produtos, comp)
+    planilha.gerar_planilha(destino / "lista-cmed.xlsx", atual, anterior, fonte.get("url", ""),
+                            aliquotas, produtos, comp, historico)
     exemplo = Path(__file__).resolve().parent.parent / "exemplos" / "tabela-drogaria-exemplo.csv"
     if exemplo.exists():
         shutil.copyfile(exemplo, destino / "exemplo.csv")
